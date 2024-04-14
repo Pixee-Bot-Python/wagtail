@@ -64,6 +64,12 @@ WAGTAILADMIN_BASE_URL = 'http://example.com'
 
 If this setting is not present, Wagtail will fall back to `request.site.root_url` or to the hostname of the request. Although this setting is not strictly required, it is highly recommended because leaving it out may produce unusable URLs in notification emails.
 
+Add a `WAGTAILDOCS_EXTENSIONS` setting to specify the file types that Wagtail will allow to be uploaded as documents. This can be omitted to allow all file types, but this may present a security risk if untrusted users are allowed to upload documents - see [](user_uploaded_files).
+
+```python
+WAGTAILDOCS_EXTENSIONS = ['csv', 'docx', 'key', 'odt', 'pdf', 'pptx', 'rtf', 'txt', 'xlsx', 'zip']
+```
+
 Various other settings are available to configure Wagtail's behaviour - see [Settings](/reference/settings).
 
 ## URL configuration
@@ -105,7 +111,7 @@ urlpatterns = [
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 ```
 
-Note that this only works in development mode (`DEBUG = True`); in production, you have to configure your web server to serve files from `MEDIA_ROOT`. For further details, see the Django documentation: [Serving files uploaded by a user during development](https://docs.djangoproject.com/en/stable/howto/static-files/#serving-files-uploaded-by-a-user-during-development) and [Deploying static files](django:howto/static-files/deployment).
+Note that this only works in development mode (`DEBUG = True`); in production, you have to configure your web server to serve files from `MEDIA_ROOT`. For further details, see the Django documentation: [Serving files uploaded by a user during development](https://docs.djangoproject.com/en/stable/howto/static-files/#serving-files-uploaded-by-a-user-during-development) and [Deploying static files](inv:django#howto/static-files/deployment).
 
 With this configuration in place, you are ready to run `python manage.py migrate` to create the database tables used by Wagtail.
 

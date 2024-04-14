@@ -111,6 +111,7 @@ Loic Teixeira
 Ocin Leung
 Yeh Yen-Ke <yyken.outlook.com>
 Yu Hsun Lee <andylee0914.tw.gmail.com>
+Yunchi Pang <yunchipang.gmail.com>
 
 Croatian (Croatia) - hr_HR
 -----
@@ -150,6 +151,11 @@ Loic Teixeira
 MRostgaard <Mrostgaard.gmail.com>
 Mads Kronborg <madskronborg99.gmail.com>
 
+Divehi - dv
+-----
+Fauzaan Gasim
+Matt Westcott <matthew.torchbox.com>
+
 Dutch - nl
 -----
 Arne Turpyn <info.arneturpyn.com>
@@ -181,7 +187,7 @@ Neeraj PY
 
 Estonian - et
 -----
-Erlend <debcf78e.opayq.com>
+Erlend Eelmets <debcf78e.opayq.com>
 Loic Teixeira
 Martin <martinpajuste.gmail.com>
 Matt Westcott <matthew.torchbox.com>
@@ -203,16 +209,17 @@ Valter Maasalo <vmaasalo.gmail.com>
 
 French - fr
 -----
+69c761fa404d2f74d5a7a2904d9e6f47_dc2dbc9 <f37077798760362881f9d396b6e22ec7_1878>
 Adrien <laadrien.gmail.com>
 André Bouatchidzé <a.anbz.net>
 Antonin ENFRUN <anton.zorgameuh.org>
+Aurel Pere
 Aurélien Debord <contact.aureliendebord.com>
 Axel Haustant
 Benoît Vogel <contact.spicy-informatique.com>
 Bertrand Bordage <bordage.bertrand.gmail.com>
 Dominique PERETTI <dperetti.gmail.com>
 Fabien Le Frapper <contact.fabienlefrapper.me>
-Karl Hobley <karl.torchbox.com>
 Loic Teixeira
 Léo <leo.naeka.fr>
 Matt Westcott <matthew.torchbox.com>
@@ -223,7 +230,6 @@ Sophy O <sophy.ouch.erudit.org>
 Sébastien Corbin <seb.corbin.gmail.com>
 Timothy Allen <flipper.peregrinesalon.com>
 Tom Dyson <tom.torchbox.com>
-fpoulain <fpoulain.metrodore.fr>
 incognitae <pierre.onoffdesign.com>
 nahuel
 
@@ -398,10 +404,12 @@ Kyu Choi
 Kyungil Choi <hanpama.gmail.com>
 Loic Teixeira
 Matt Westcott <matthew.torchbox.com>
+mirusu400
 
 Latvian - lv
 -----
 Aleksandrs Korņijenko <ubarbariska.gmail.com>
+Joren Štekeļs
 Loic Teixeira
 Maris Serzans <maris.serzans.gmail.com>
 Reinis Rozenbergs <reinisr.gmail.com>
@@ -522,6 +530,7 @@ Bogdan Mateescu
 Dan Braghis
 Julian C <jcuotpc.gmail.com>
 Loic Teixeira
+Madalin Popa
 zerolab
 
 Russian - ru
@@ -533,7 +542,7 @@ Alexey Sveshnikov
 Alexey Trofimov <funkindy.gmail.com>
 Anatoly <pandorinpan.gmail.com>
 Andrei Satsevich
-Andrey <talkerbox.live.com>
+Andrei “Talkerbox” Audzei <bigtalkerbox.gmail.com>
 Arseni M <arseni+transifex.mouchinski.com>
 Daniil <fleepd.gmail.com>
 Eugene <eugene.mechanism.gmail.com>
@@ -654,6 +663,7 @@ Thai - th
 Amawalee Combe <dang.getsalebox.com>
 Jon Combe <jon.naremit.com>
 Loic Teixeira
+Siramol Khunchai
 Walaksawan Vervoort <nula_wala.yahoo.com>
 
 Turkish - tr
@@ -674,7 +684,7 @@ Saadettin Yasir AKEL <yasirakel.gmail.com>
 Umut Bektaş <info.umutbektas.com>
 suayip uzulmez <suayip.541.gmail.com>
 
-Turkish (Turkey) - tr_TR
+Turkish (Türkiye) - tr_TR
 -----
 A S <basitlikiyidir.gmail.com>
 Ahmet Serdar Karadeniz <ahmetserdarkaradeniz.rayinformatics.com>

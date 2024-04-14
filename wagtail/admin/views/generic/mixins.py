@@ -101,10 +101,13 @@ class BeforeAfterHookMixin(HookResponseMixin):
 
 
 class LocaleMixin:
-    def setup(self, request, *args, **kwargs):
-        super().setup(request, *args, **kwargs)
-        self.locale = self.get_locale()
-        self.translations = self.get_translations() if self.locale else []
+    @cached_property
+    def locale(self):
+        return self.get_locale()
+
+    @cached_property
+    def translations(self):
+        return self.get_translations() if self.locale else []
 
     def get_locale(self):
         if not getattr(self, "model", None):
@@ -473,7 +476,9 @@ class CreateEditViewOptionalFeaturesMixin:
         and returns the new object. Override this to implement custom save logic.
         """
         if self.draftstate_enabled:
-            instance = self.form.save(commit=False)
+            instance = self.form.save(
+                commit=self.view_name == "edit" and not self.object.live
+            )
 
             # If DraftStateMixin is applied, only save to the database in CreateView,
             # and make sure the live field is set to False.
@@ -739,7 +744,7 @@ class RevisionsRevertMixin:
         return self.revision.as_object()
 
     def save_instance(self):
-        commit = not issubclass(self.model, DraftStateMixin)
+        commit = not issubclass(self.model, DraftStateMixin) or not self.object.live
         instance = self.form.save(commit=commit)
 
         self.has_content_changes = self.form.has_changed()

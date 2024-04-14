@@ -31,6 +31,7 @@ from wagtail.test.testapp.models import (
     ModeratedModel,
     RevisableChildModel,
     RevisableModel,
+    SnippetChooserModel,
     VariousOnDeleteModel,
 )
 from wagtail.test.testapp.views import (
@@ -39,6 +40,7 @@ from wagtail.test.testapp.views import (
     SearchTestModelViewSet,
     ToyViewSetGroup,
     animated_advert_chooser_viewset,
+    event_page_listing_viewset,
 )
 
 from .forms import FavouriteColourForm
@@ -304,7 +306,9 @@ class FullFeaturedSnippetViewSet(SnippetViewSet):
 
     class IndexView(SnippetViewSet.index_view_class):
         def get_add_url(self):
-            return set_query_params(super().get_add_url(), {"customised": "param"})
+            if not (add_url := super().get_add_url()):
+                return None
+            return set_query_params(add_url, {"customised": "param"})
 
     index_view_class = IndexView
 
@@ -382,12 +386,24 @@ class VariousOnDeleteModelViewSet(SnippetViewSet):
     inspect_view_enabled = True
 
 
+class SnippetChooserModelViewSet(SnippetViewSet):
+    model = SnippetChooserModel
+
+    list_display = [
+        "__str__",
+        "full_featured__text",
+        "full_featured__latest_revision__created_at",
+    ]
+    exclude_form_fields = []
+
+
 register_snippet(FullFeaturedSnippet, viewset=FullFeaturedSnippetViewSet)
 register_snippet(DraftStateModel, viewset=DraftStateModelViewSet)
 # Works with both classes and instances
 register_snippet(ModeratedModelViewSet())
 register_snippet(RevisableViewSetGroup)
 register_snippet(VariousOnDeleteModelViewSet)
+register_snippet(SnippetChooserModelViewSet)
 
 
 @hooks.register("register_bulk_action")
@@ -402,3 +418,8 @@ class DisableBulkAction(SnippetBulkAction):
 @hooks.register("register_admin_viewset")
 def register_animated_advert_chooser_viewset():
     return animated_advert_chooser_viewset
+
+
+@hooks.register("register_admin_viewset")
+def register_event_page_listing_viewset():
+    return event_page_listing_viewset

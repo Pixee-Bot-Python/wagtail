@@ -25,6 +25,7 @@ class UsageView(PermissionCheckedMixin, BaseObjectMixin, BaseListingView):
     page_title = gettext_lazy("Usage")
     index_url_name = None
     edit_url_name = None
+    usage_url_name = None
     permission_required = "change"
 
     @cached_property
@@ -37,8 +38,16 @@ class UsageView(PermissionCheckedMixin, BaseObjectMixin, BaseListingView):
             return object.get_latest_revision_as_object()
         return object
 
-    def get_edit_url(self):
-        return reverse(self.edit_url_name, args=(quote(self.object.pk),))
+    def get_edit_url(self, instance):
+        if self.edit_url_name:
+            return reverse(self.edit_url_name, args=(quote(instance.pk),))
+
+    def get_usage_url(self, instance):
+        if self.usage_url_name:
+            return reverse(self.usage_url_name, args=(quote(instance.pk),))
+
+    def get_index_url(self):  # used for pagination links
+        return self.get_usage_url(self.object)
 
     def get_page_subtitle(self):
         return get_latest_str(self.object)
@@ -52,10 +61,11 @@ class UsageView(PermissionCheckedMixin, BaseObjectMixin, BaseListingView):
                     "label": capfirst(self.object._meta.verbose_name_plural),
                 }
             )
-        if self.edit_url_name:
+        edit_url = self.get_edit_url(self.object)
+        if edit_url:
             items.append(
                 {
-                    "url": self.get_edit_url(),
+                    "url": edit_url,
                     "label": get_latest_str(self.object),
                 }
             )
@@ -70,13 +80,17 @@ class UsageView(PermissionCheckedMixin, BaseObjectMixin, BaseListingView):
 
     @cached_property
     def header_buttons(self):
-        return [
-            HeaderButton(
-                label=_("Edit"),
-                url=self.get_edit_url(),
-                icon_name="edit",
-            ),
-        ]
+        edit_url = self.get_edit_url(self.object)
+        buttons = []
+        if edit_url:
+            buttons.append(
+                HeaderButton(
+                    label=_("Edit"),
+                    url=edit_url,
+                    icon_name="edit",
+                )
+            )
+        return buttons
 
     def get_queryset(self):
         return ReferenceIndex.get_references_to(self.object).group_by_source_object()

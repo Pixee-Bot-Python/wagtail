@@ -35,6 +35,7 @@ from wagtail.snippets.action_menu import (
 )
 from wagtail.snippets.blocks import SnippetChooserBlock
 from wagtail.snippets.models import SNIPPET_MODELS, register_snippet
+from wagtail.snippets.views.snippets import CopyView
 from wagtail.snippets.widgets import (
     AdminSnippetChooser,
     SnippetChooserAdapter,
@@ -284,10 +285,10 @@ class TestSnippetListView(WagtailTestUtils, TestCase):
         )
 
         def hide_delete_button_for_lovely_advert(buttons, snippet, user):
-            # Edit, delete, dummy button
-            self.assertEqual(len(buttons), 3)
+            # Edit, delete, dummy button, copy button
+            self.assertEqual(len(buttons), 4)
             buttons[:] = [button for button in buttons if button.url != delete_url]
-            self.assertEqual(len(buttons), 2)
+            self.assertEqual(len(buttons), 3)
 
         with hooks.register_temporarily(
             "construct_snippet_listing_buttons",
@@ -354,11 +355,23 @@ class TestLocaleSelectorOnList(WagtailTestUtils, TestCase):
         self.fr_locale = Locale.objects.create(language_code="fr")
         self.user = self.login()
 
+    @override_settings(
+        WAGTAIL_CONTENT_LANGUAGES=[
+            ("ar", "Arabic"),
+            ("en", "English"),
+            ("fr", "French"),
+        ]
+    )
     def test_locale_selector(self):
         response = self.client.get(
             reverse("wagtailsnippets_snippetstests_translatablesnippet:list")
         )
         soup = self.get_soup(response.content)
+
+        # Should only show languages that also have the corresponding Locale
+        # (the Arabic locale is not created in the setup, so it should not be shown)
+        arabic_input = soup.select_one('input[name="locale"][value="ar"]')
+        self.assertIsNone(arabic_input)
 
         french_input = soup.select_one('input[name="locale"][value="fr"]')
         self.assertIsNotNone(french_input)
@@ -376,6 +389,21 @@ class TestLocaleSelectorOnList(WagtailTestUtils, TestCase):
             Why not <a href="{add_url}">add one</a>?</p>""",
             html=True,
         )
+
+    def test_no_locale_filter_when_only_one_locale(self):
+        self.fr_locale.delete()
+        response = self.client.get(
+            reverse("wagtailsnippets_snippetstests_translatablesnippet:list")
+        )
+        soup = self.get_soup(response.content)
+
+        locale_input = soup.select_one('input[name="locale"]')
+        self.assertIsNone(locale_input)
+
+        # The viewset has no other filters configured,
+        # so the filters drilldown should not be present
+        filters_drilldown = soup.select_one("#filters-drilldown")
+        self.assertIsNone(filters_drilldown)
 
     @override_settings(WAGTAIL_I18N_ENABLED=False)
     def test_locale_selector_not_present_when_i18n_disabled(self):
@@ -939,6 +967,29 @@ class TestSnippetCreateView(WagtailTestUtils, TestCase):
         self.assertNotContains(response, "<em>'Save'</em>")
 
 
+class TestSnippetCopyView(WagtailTestUtils, TestCase):
+    def setUp(self):
+        self.snippet = StandardSnippet.objects.create(text="Test snippet")
+        self.url = reverse(
+            StandardSnippet.snippet_viewset.get_url_name("copy"),
+            args=(self.snippet.pk,),
+        )
+        self.login()
+
+    def test_simple(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "wagtailsnippets/snippets/create.html")
+
+    def test_form_prefilled(self):
+        request = RequestFactory().get(self.url)
+        view = CopyView()
+        view.model = StandardSnippet
+        view.setup(request, pk=self.snippet.pk)
+
+        self.assertEqual(view._get_initial_form_instance(), self.snippet)
+
+
 @override_settings(WAGTAIL_I18N_ENABLED=True)
 class TestLocaleSelectorOnCreate(WagtailTestUtils, TestCase):
     fixtures = ["test.json"]
@@ -1031,6 +1082,7 @@ class TestCreateDraftStateSnippet(WagtailTestUtils, TestCase):
         )
 
     def test_get(self):
+        add_url = reverse("wagtailsnippets_tests_draftstatemodel:add")
         response = self.get()
 
         self.assertEqual(response.status_code, 200)
@@ -1043,7 +1095,7 @@ class TestCreateDraftStateSnippet(WagtailTestUtils, TestCase):
         # The publish button should have name="action-publish"
         self.assertContains(
             response,
-            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning"\n    data-controller="w-progress"\n    data-action="w-progress#activate"\n',
+            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning"\n    data-controller="w-progress w-kbd"\n    data-action="w-progress#activate"\n    data-w-kbd-key-value="mod+s"\n',
         )
         # The status side panel should be rendered so that the
         # publishing schedule can be configured
@@ -1059,6 +1111,26 @@ class TestCreateDraftStateSnippet(WagtailTestUtils, TestCase):
         html = response.content.decode()
         self.assertTagInHTML(
             '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Set schedule</button>',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        # Should show the dialog template pointing to the [data-edit-form] selector as the root
+        self.assertTagInHTML(
+            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        # Should render the main form with data-edit-form attribute
+        self.assertTagInHTML(
+            f'<form action="{add_url}" method="POST" data-edit-form>',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        self.assertTagInHTML(
+            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
             html,
             count=1,
             allow_extra_attrs=True,
@@ -1329,14 +1401,12 @@ class TestCreateDraftStateSnippet(WagtailTestUtils, TestCase):
 
         # Check that a form error was raised
         self.assertFormError(
-            response,
-            "form",
+            response.context["form"],
             "go_live_at",
             "Go live date/time must be before expiry date/time",
         )
         self.assertFormError(
-            response,
-            "form",
+            response.context["form"],
             "expire_at",
             "Go live date/time must be before expiry date/time",
         )
@@ -1367,7 +1437,9 @@ class TestCreateDraftStateSnippet(WagtailTestUtils, TestCase):
 
         # Check that a form error was raised
         self.assertFormError(
-            response, "form", "expire_at", "Expiry date/time must be in the future"
+            response.context["form"],
+            "expire_at",
+            "Expiry date/time must be in the future",
         )
 
         self.assertContains(
@@ -1434,6 +1506,36 @@ class BaseTestSnippetEditView(WagtailTestUtils, TestCase):
     def setUp(self):
         self.user = self.login()
 
+    def assertSchedulingDialogRendered(self, response, label="Edit schedule"):
+        # Should show the "Edit schedule" button
+        html = response.content.decode()
+        self.assertTagInHTML(
+            f'<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">{label}</button>',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        # Should show the dialog template pointing to the [data-edit-form] selector as the root
+        self.assertTagInHTML(
+            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        # Should render the main form with data-edit-form attribute
+        self.assertTagInHTML(
+            f'<form action="{self.get_edit_url()}" method="POST" data-edit-form>',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+        self.assertTagInHTML(
+            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
+            html,
+            count=1,
+            allow_extra_attrs=True,
+        )
+
 
 class TestSnippetEditView(BaseTestSnippetEditView):
     fixtures = ["test.json"]
@@ -1496,13 +1598,13 @@ class TestSnippetEditView(BaseTestSnippetEditView):
         expected_url = "/admin/snippets/tests/advert/edit/%d/" % self.test_snippet.pk
         self.assertEqual(url_finder.get_edit_url(self.test_snippet), expected_url)
 
-    def test_non_existant_model(self):
+    def test_non_existent_model(self):
         response = self.client.get(
             f"/admin/snippets/tests/foo/edit/{quote(self.test_snippet.pk)}/"
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_nonexistant_id(self):
+    def test_nonexistent_id(self):
         response = self.client.get(
             reverse("wagtailsnippets_tests_advert:edit", args=[999999])
         )
@@ -1804,20 +1906,14 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
         # The publish button should have name="action-publish"
         self.assertContains(
             response,
-            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning"\n    data-controller="w-progress"\n    data-action="w-progress#activate"\n',
+            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning"\n    data-controller="w-progress w-kbd"\n    data-action="w-progress#activate"\n    data-w-kbd-key-value="mod+s"\n',
         )
 
         # The status side panel should show "No publishing schedule set" info
         self.assertContains(response, "No publishing schedule set")
 
         # Should show the "Set schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Set schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response, label="Set schedule")
 
         # Should show the correct subtitle in the dialog
         self.assertContains(
@@ -1844,8 +1940,8 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
 
         self.assertRedirects(response, self.get_edit_url())
 
-        # The instance should not be updated
-        self.assertEqual(self.test_snippet.text, "Draft-enabled Foo")
+        # The instance should be updated, since it is still a draft
+        self.assertEqual(self.test_snippet.text, "Draft-enabled Bar")
 
         # The instance should be a draft
         self.assertFalse(self.test_snippet.live)
@@ -1960,8 +2056,8 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             # Should remain on the edit page
             self.assertRedirects(response, self.get_edit_url())
 
-            # The instance should not be edited
-            self.assertEqual(self.test_snippet.text, "Draft-enabled Foo")
+            # The instance should be edited, since it is still a draft
+            self.assertEqual(self.test_snippet.text, "Edited draft Foo")
 
             # The instance should not be live
             self.assertFalse(self.test_snippet.live)
@@ -2311,12 +2407,13 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
         )
         self.assertContains(response, "Unpublish")
 
-        # Should use the latest draft content for the title
-        self.assertContains(
-            response,
-            '<h2 class="w-header__title" id="header-title">Draft-enabled Bar, In Draft</h2>',
-            html=True,
-        )
+        soup = self.get_soup(response.content)
+        h2 = soup.select_one("#header-title")
+        self.assertIsNotNone(h2)
+        icon = h2.select_one("svg use")
+        self.assertIsNotNone(icon)
+        self.assertEqual(icon["href"], "#icon-snippet")
+        self.assertEqual(h2.text.strip(), "Draft-enabled Bar, In Draft")
 
         # Should use the latest draft content for the form
         self.assertTagInHTML(
@@ -2399,29 +2496,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_scheduled_go_live_before_expiry(self):
         response = self.post(
@@ -2436,14 +2511,12 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
 
         # Check that a form error was raised
         self.assertFormError(
-            response,
-            "form",
+            response.context["form"],
             "go_live_at",
             "Go live date/time must be before expiry date/time",
         )
         self.assertFormError(
-            response,
-            "form",
+            response.context["form"],
             "expire_at",
             "Go live date/time must be before expiry date/time",
         )
@@ -2474,7 +2547,9 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
 
         # Check that a form error was raised
         self.assertFormError(
-            response, "form", "expire_at", "Expiry date/time must be in the future"
+            response.context["form"],
+            "expire_at",
+            "Expiry date/time must be in the future",
         )
 
         self.assertContains(
@@ -2643,29 +2718,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should still show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_post_publish_now_an_already_scheduled_unpublished(self):
         # First let's publish an object with a go_live_at in the future
@@ -2728,29 +2781,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
         )
 
         response = self.get()
-
-        # Should show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_post_publish_scheduled_published(self):
         self.test_snippet.save_revision().publish()
@@ -2830,29 +2861,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should still show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_post_publish_now_an_already_scheduled_published(self):
         self.test_snippet.save_revision().publish()
@@ -3027,29 +3036,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should still show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_post_publish_schedule_before_a_scheduled_expire(self):
         # First let's publish an object with *just* an expire_at in the future
@@ -3145,29 +3132,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should still show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
     def test_edit_post_publish_schedule_after_a_scheduled_expire(self):
         # First let's publish an object with *just* an expire_at in the future
@@ -3266,29 +3231,7 @@ class TestEditDraftStateSnippet(BaseTestSnippetEditView):
             html=True,
             count=1,
         )
-
-        # Should still show the "Edit schedule" button
-        html = response.content.decode()
-        self.assertTagInHTML(
-            '<button type="button" data-a11y-dialog-show="schedule-publishing-dialog">Edit schedule</button>',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-
-        # Should show the dialog template pointing to the [data-edit-form] selector as the root
-        self.assertTagInHTML(
-            '<template data-controller="w-teleport" data-w-teleport-target-value="[data-edit-form]">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
-        self.assertTagInHTML(
-            '<div id="schedule-publishing-dialog" class="w-dialog publishing" data-controller="w-dialog">',
-            html,
-            count=1,
-            allow_extra_attrs=True,
-        )
+        self.assertSchedulingDialogRendered(response)
 
 
 class TestScheduledForPublishLock(BaseTestSnippetEditView):
@@ -4014,7 +3957,7 @@ class TestSnippetDelete(WagtailTestUtils, TestCase):
 
         def hook_func(request, instances):
             self.assertIsInstance(request, HttpRequest)
-            self.assertQuerysetEqual(instances, ["<Advert: Test hook>"], transform=repr)
+            self.assertQuerySetEqual(instances, ["<Advert: Test hook>"], transform=repr)
             return HttpResponse("Overridden!")
 
         with self.register_hook("before_delete_snippet", hook_func):
@@ -4033,7 +3976,7 @@ class TestSnippetDelete(WagtailTestUtils, TestCase):
 
         def hook_func(request, instances):
             self.assertIsInstance(request, HttpRequest)
-            self.assertQuerysetEqual(instances, ["<Advert: Test hook>"], transform=repr)
+            self.assertQuerySetEqual(instances, ["<Advert: Test hook>"], transform=repr)
             return HttpResponse("Overridden!")
 
         with self.register_hook("before_delete_snippet", hook_func):
@@ -4058,7 +4001,7 @@ class TestSnippetDelete(WagtailTestUtils, TestCase):
 
         def hook_func(request, instances):
             self.assertIsInstance(request, HttpRequest)
-            self.assertQuerysetEqual(instances, ["<Advert: Test hook>"], transform=repr)
+            self.assertQuerySetEqual(instances, ["<Advert: Test hook>"], transform=repr)
             return HttpResponse("Overridden!")
 
         with self.register_hook("after_delete_snippet", hook_func):
@@ -4215,7 +4158,7 @@ class TestSnippetHistory(WagtailTestUtils, TestCase):
     def test_simple(self):
         response = self.get(self.non_revisable_snippet)
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, '<td class="title">Created</td>', html=True)
+        self.assertContains(response, "<td>Created</td>", html=True)
         self.assertContains(
             response,
             'data-w-tooltip-content-value="Sept. 30, 2021, 10:01 a.m."',
@@ -4247,7 +4190,7 @@ class TestSnippetHistory(WagtailTestUtils, TestCase):
         edit_url = self.get_url(self.non_revisable_snippet, "edit")
         self.assertNotContains(
             response,
-            f'<a href="{edit_url}" class="button button-small button-secondary">Edit</a>',
+            f'<a href="{edit_url}">Edit</a>',
         )
 
     def test_should_show_actions_on_revisable_snippet(self):
@@ -4270,14 +4213,14 @@ class TestSnippetHistory(WagtailTestUtils, TestCase):
         # The latest revision should have an "Edit" action instead of "Review"
         self.assertContains(
             response,
-            f'<a href="{edit_url}" class="button button-small button-secondary">Edit</a>',
+            f'<a href="{edit_url}">Edit</a>',
             count=1,
         )
 
         # Any other revision should have a "Review" action
         self.assertContains(
             response,
-            f'<a href="{revert_url}" class="button button-small button-secondary">Review this version</a>',
+            f'<a href="{revert_url}">Review this version</a>',
             count=1,
         )
 
@@ -4318,6 +4261,24 @@ class TestSnippetHistory(WagtailTestUtils, TestCase):
         self.assertEqual(response.status_code, 200)
         response = self.get(self.revisable_snippet)
         self.assertEqual(response.status_code, 200)
+
+    def test_num_queries(self):
+        snippet = self.revisable_snippet
+
+        # Warm up the cache
+        self.get(snippet)
+
+        with self.assertNumQueries(14):
+            self.get(snippet)
+
+        for i in range(20):
+            revision = snippet.save_revision(user=self.user, log_action=True)
+            if i % 5 == 0:
+                revision.publish(user=self.user, log_action=True)
+
+        # Should have the same number of queries as before (no N+1 queries)
+        with self.assertNumQueries(14):
+            self.get(snippet)
 
 
 class TestSnippetRevisions(WagtailTestUtils, TestCase):
@@ -4421,7 +4382,7 @@ class TestSnippetRevisions(WagtailTestUtils, TestCase):
         # The publish button should have name="action-publish"
         self.assertContains(
             response,
-            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning warning"\n    data-controller="w-progress"\n    data-action="w-progress#activate"\n',
+            '<button\n    type="submit"\n    name="action-publish"\n    value="action-publish"\n    class="button action-save button-longrunning warning"\n    data-controller="w-progress w-kbd"\n    data-action="w-progress#activate"\n    data-w-kbd-key-value="mod+s"\n',
         )
 
         # Should not show the Unpublish action menu item
@@ -4467,9 +4428,15 @@ class TestSnippetRevisions(WagtailTestUtils, TestCase):
 
         # Should show the preview panel
         preview_url = self.get_url("preview_on_edit")
-        self.assertContains(response, 'data-side-panel-toggle="preview"')
         self.assertContains(response, 'data-side-panel="preview"')
         self.assertContains(response, f'data-action="{preview_url}"')
+
+        # Should have the preview side panel toggle button
+        soup = self.get_soup(response.content)
+        toggle_button = soup.find("button", {"data-side-panel-toggle": "preview"})
+        self.assertIsNotNone(toggle_button)
+        self.assertEqual("w-tooltip w-kbd", toggle_button["data-controller"])
+        self.assertEqual("mod+p", toggle_button["data-w-kbd-key-value"])
 
     def test_replace_revision(self):
         get_response = self.get()
@@ -4548,8 +4515,8 @@ class TestSnippetRevisions(WagtailTestUtils, TestCase):
             object_id=self.snippet.pk,
         )
 
-        # The instance should not be updated
-        self.assertEqual(self.snippet.text, "Draft-enabled Foo")
+        # The instance should be updated, since it is still a draft
+        self.assertEqual(self.snippet.text, "Draft-enabled Foo reverted")
         # The initial revision, edited revision, and revert revision
         self.assertEqual(self.snippet.revisions.count(), 3)
         # The latest revision should be the revert revision

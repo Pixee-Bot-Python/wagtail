@@ -2,7 +2,9 @@ from django.urls import reverse
 from django.utils.text import capfirst
 from django.utils.translation import gettext_lazy, ngettext
 
+from wagtail import hooks
 from wagtail.admin.ui.components import Component
+from wagtail.admin.userbar import AccessibilityItem
 from wagtail.models import DraftStateMixin, LockableMixin, Page, ReferenceIndex
 
 
@@ -13,6 +15,7 @@ class BaseSidePanel(Component):
         icon_name = ""
         has_counter = True
         counter_classname = ""
+        keyboard_shortcut = None
 
         def __init__(self, panel):
             self.panel = panel
@@ -227,7 +230,7 @@ class StatusSidePanel(BaseSidePanel):
         context["last_updated_info"] = self.last_updated_info
         context.update(self.get_scheduled_publishing_context(parent_context))
         context.update(self.get_lock_context(parent_context))
-        if self.object.pk:
+        if self.object.pk and self.usage_url:
             context.update(self.get_usage_context())
         return context
 
@@ -305,11 +308,38 @@ class CommentsSidePanel(BaseSidePanel):
         return context
 
 
+class ChecksSidePanel(BaseSidePanel):
+    class SidePanelToggle(BaseSidePanel.SidePanelToggle):
+        aria_label = gettext_lazy("Toggle checks")
+        icon_name = "glasses"
+
+    name = "checks"
+    title = gettext_lazy("Checks")
+    template_name = "wagtailadmin/shared/side_panels/checks.html"
+    order = 350
+
+    def get_axe_configuration(self):
+        # Retrieve the Axe configuration from the userbar.
+        userbar_items = [AccessibilityItem()]
+        for fn in hooks.get_hooks("construct_wagtail_userbar"):
+            fn(self.request, userbar_items)
+
+        for item in userbar_items:
+            if isinstance(item, AccessibilityItem):
+                return item.get_axe_configuration(self.request)
+
+    def get_context_data(self, parent_context):
+        context = super().get_context_data(parent_context)
+        context["axe_configuration"] = self.get_axe_configuration()
+        return context
+
+
 class PreviewSidePanel(BaseSidePanel):
     class SidePanelToggle(BaseSidePanel.SidePanelToggle):
         aria_label = gettext_lazy("Toggle preview")
         icon_name = "mobile-alt"
         has_counter = False
+        keyboard_shortcut = "mod+p"
 
     name = "preview"
     title = gettext_lazy("Preview")

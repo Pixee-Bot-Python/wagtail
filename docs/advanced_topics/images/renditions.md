@@ -68,6 +68,18 @@ By default, Wagtail will try to use the cache called "renditions". If no such ca
 
 When using a queryset to render a list of images or objects with images, you can prefetch the renditions needed with a single additional query. For long lists of items, or where multiple renditions are used for each item, this can provide a significant boost to performance.
 
+(regenerate_image_renditions)=
+
+## Regenerating existing renditions
+
+You can also directly use the image management command from the console to regenerate the renditions:
+
+```sh
+./manage.py wagtail_update_image_renditions --purge
+```
+
+You can read more about this command from [](wagtail_update_image_renditions)
+
 ### Image QuerySets
 
 When working with an Image QuerySet, you can make use of Wagtail's built-in `prefetch_renditions` queryset method to prefetch the renditions needed.
@@ -139,7 +151,7 @@ def get_events():
 
 ## Model methods involved in rendition generation
 
-The following `AbstractImage` model methods are involved in finding and generating renditions. If using a custom image model, you can customise the behaviour of either of these methods by overriding them on your model:
+The following `AbstractImage` model methods are involved in finding and generating renditions. If using a custom image model, you can customize the behavior of either of these methods by overriding them on your model:
 
 ```{eval-rst}
 .. automodule:: wagtail.images.models

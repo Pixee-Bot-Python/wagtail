@@ -1,6 +1,6 @@
 import pickle
 
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 
 from wagtail.models import Site
 from wagtail.test.testapp.models import ImportantPagesSiteSetting, TestSiteSetting
@@ -17,6 +17,18 @@ class SettingModelTestCase(SiteSettingsTestMixin, TestCase):
         ):
             with self.subTest(site=site):
                 self.assertEqual(TestSiteSetting.for_site(site), expected_settings)
+
+    @override_settings(ALLOWED_HOSTS=["no-site-match.example"])
+    def test_for_request_raises_does_not_exist_when_no_site_match(self):
+        Site.objects.update(is_default_site=False)
+        # Use RequestFactory directly, as self.get_request sets SERVER_NAME and site.
+        request = RequestFactory(SERVER_NAME="no-site-match.example").get("/")
+        with self.assertRaises(TestSiteSetting.DoesNotExist):
+            TestSiteSetting.for_request(request)
+
+    def test_for_site_raises_does_not_exist_when_site_is_none(self):
+        with self.assertRaises(TestSiteSetting.DoesNotExist):
+            TestSiteSetting.for_site(None)
 
     def test_for_request_returns_expected_settings(self):
         default_site_request = self.get_request()
@@ -62,7 +74,7 @@ class SettingModelTestCase(SiteSettingsTestMixin, TestCase):
     def test_importantpages_object_is_pickleable(self):
         obj = self._create_importantpagessitesetting_object()
         # Triggers creation of the InvokeViaAttributeShortcut instance,
-        # and also gives us a value we can use for comparisson
+        # and also gives us a value we can use for comparison
         signup_page_url = obj.page_url.sign_up_page
 
         # Attempt to pickle ImportantPages instance
@@ -70,7 +82,7 @@ class SettingModelTestCase(SiteSettingsTestMixin, TestCase):
             pickled = pickle.dumps(obj, -1)
         except Exception as e:  # noqa: BLE001
             raise AssertionError(
-                f"An error occured when attempting to pickle {obj!r}: {e}"
+                f"An error occurred when attempting to pickle {obj!r}: {e}"
             )
 
         # Now unpickle the pickled ImportantPages
@@ -78,7 +90,7 @@ class SettingModelTestCase(SiteSettingsTestMixin, TestCase):
             unpickled = pickle.loads(pickled)
         except Exception as e:  # noqa: BLE001
             raise AssertionError(
-                f"An error occured when attempting to unpickle {obj!r}: {e}"
+                f"An error occurred when attempting to unpickle {obj!r}: {e}"
             )
 
         # Using 'page_url' should create a new InvokeViaAttributeShortcut

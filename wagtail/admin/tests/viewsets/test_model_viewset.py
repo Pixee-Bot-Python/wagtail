@@ -14,6 +14,7 @@ from django.utils.timezone import make_aware
 from openpyxl import load_workbook
 
 from wagtail.admin.admin_url_finder import AdminURLFinder
+from wagtail.log_actions import log
 from wagtail.models import ModelLogEntry
 from wagtail.test.testapp.models import (
     FeatureCompleteToy,
@@ -715,9 +716,22 @@ class TestOrdering(WagtailTestUtils, TestCase):
             ],
         )
 
-    def test_custom_order(self):
+    def test_custom_order_from_query_args(self):
+        response = self.client.get(reverse("fctoy-alt3:index") + "?ordering=-name")
+        self.assertFalse(FeatureCompleteToy._meta.ordering)
+        self.assertEqual(
+            [obj.name for obj in response.context["object_list"]],
+            [
+                "DDDDDDDDDD",
+                "CCCCCCCCCC",
+                "BBBBBBBBBB",
+                "AAAAAAAAAA",
+            ],
+        )
+
+    def test_custom_order_from_view(self):
         response = self.client.get(reverse("feature_complete_toy:index"))
-        # Should respect the viewset's ordering
+        # Should respect the view's ordering
         self.assertFalse(FeatureCompleteToy._meta.ordering)
         self.assertEqual(
             [obj.name for obj in response.context["object_list"]],
@@ -726,6 +740,20 @@ class TestOrdering(WagtailTestUtils, TestCase):
                 "BBBBBBBBBB",
                 "CCCCCCCCCC",
                 "DDDDDDDDDD",
+            ],
+        )
+
+    def test_custom_order_from_from_viewset(self):
+        response = self.client.get(reverse("fctoy-alt3:index"))
+        # The view has an ordering but it is overwritten by the viewset
+        self.assertFalse(FeatureCompleteToy._meta.ordering)
+        self.assertEqual(
+            [obj.name for obj in response.context["object_list"]],
+            [
+                "CCCCCCCCCC",
+                "AAAAAAAAAA",
+                "DDDDDDDDDD",
+                "BBBBBBBBBB",
             ],
         )
 
@@ -810,6 +838,18 @@ class TestBreadcrumbs(AdminTemplateTestUtils, WagtailTestUtils, TestCase):
         ]
         self.assertBreadcrumbsItemsRendered(items, response.content)
 
+    def test_history_view_pagination(self):
+        for i in range(25):
+            log(instance=self.object, action="wagtail.edit", user=self.user)
+
+        history_url = reverse(
+            "feature_complete_toy:history",
+            args=(quote(self.object.pk),),
+        )
+        response = self.client.get(history_url)
+        self.assertContains(response, "Page 1 of 2")
+        self.assertContains(response, f'<a href="{history_url}?p=2">')
+
     def test_usage_view(self):
         usage_url = reverse(
             "feature_complete_toy:usage",
@@ -834,6 +874,20 @@ class TestBreadcrumbs(AdminTemplateTestUtils, WagtailTestUtils, TestCase):
             },
         ]
         self.assertBreadcrumbsItemsRendered(items, response.content)
+
+    def test_usage_view_pagination(self):
+        for i in range(25):
+            VariousOnDeleteModel.objects.create(
+                text=f"Toybox {i}", cascading_toy=self.object
+            )
+
+        usage_url = reverse(
+            "feature_complete_toy:usage",
+            args=(quote(self.object.pk),),
+        )
+        response = self.client.get(usage_url)
+        self.assertContains(response, "Page 1 of 2")
+        self.assertContains(response, f'<a href="{usage_url}?p=2">')
 
     def test_inspect_view(self):
         inspect_url = reverse(
@@ -939,7 +993,7 @@ class TestHistoryView(WagtailTestUtils, TestCase):
         )
         response = self.client.get(self.url)
         soup = self.get_soup(response.content)
-        rows = soup.select("tbody tr")
+        rows = soup.select("#listing-results tbody tr")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(rows), 2)
 
@@ -956,28 +1010,109 @@ class TestHistoryView(WagtailTestUtils, TestCase):
         for rendered_row, expected_row in zip(rendered_rows, expected):
             self.assertSequenceEqual(rendered_row, expected_row)
 
-    def test_filters(self):
-        response = self.client.get(self.url, {"action": "wagtail.edit"})
-        soup = self.get_soup(response.content)
-        rows = soup.select("tbody tr")
+    def test_action_filter(self):
+        response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
+
+        # Should only show the created and edited options for the filter
+        soup = self.get_soup(response.content)
+        options = soup.select('input[name="action"][type="checkbox"]')
+        self.assertEqual(len(options), 2)
+        self.assertEqual(
+            {option.attrs.get("value") for option in options},
+            {"wagtail.create", "wagtail.edit"},
+        )
+        # Should not show the heading when not searching
+        heading = soup.select_one('h2[role="alert"]')
+        self.assertIsNone(heading)
+
+        # Should only show the edited log
+        response = self.client.get(self.url, {"action": "wagtail.edit"})
+        self.assertEqual(response.status_code, 200)
+        soup = self.get_soup(response.content)
+        rows = soup.select("#listing-results tbody tr")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].select_one("td").text.strip(), "Edited")
 
+        # Should only show the created log
         response = self.client.get(self.url, {"action": "wagtail.create"})
-        soup = self.get_soup(response.content)
-        rows = soup.select("tbody tr")
-        heading = soup.select_one("h2:not(.w-dialog h2)")
         self.assertEqual(response.status_code, 200)
+        soup = self.get_soup(response.content)
+        rows = soup.select("#listing-results tbody tr")
+        heading = soup.select_one('h2[role="alert"]')
         self.assertEqual(heading.string.strip(), "There is 1 match")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].select_one("td").text.strip(), "Created")
 
+        # Should display the heading when there are results
+        heading = soup.select_one('h2[role="alert"]')
+        self.assertEqual(heading.string.strip(), "There is 1 match")
+
+        response = self.client.get(
+            self.url,
+            {"action": ["wagtail.create", "wagtail.edit"]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["object_list"]), 2)
+
+    def test_user_filter(self):
+        # A user who absolutely has no permissions to the model
+        self.create_user("no_power")
+
+        # A user who has permissions to the model,
+        # but only has logs for a different object
+        has_power = self.create_superuser("has_power")
+        other_obj = FeatureCompleteToy.objects.create(name="Woody")
+        log(
+            instance=other_obj,
+            action="wagtail.create",
+            content_changed=True,
+            user=has_power,
+        )
+
+        # A user who does not have permissions to the model,
+        # but has logs for the object (e.g. maybe they used to have permissions)
+        previously_has_power = self.create_user("previously_has_power")
+        log(
+            instance=self.object,
+            action="wagtail.edit",
+            content_changed=True,
+            user=previously_has_power,
+        )
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        soup = self.get_soup(response.content)
+
+        # Should only show the current user and the previously_has_power user
+        options = soup.select('input[name="user"][type="checkbox"]')
+        self.assertEqual(len(options), 2)
+        self.assertEqual(
+            {option.attrs.get("value") for option in options},
+            {str(self.user.pk), str(previously_has_power.pk)},
+        )
+
+        response = self.client.get(self.url, {"user": str(self.user.pk)})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["object_list"]), 2)
+
+        response = self.client.get(self.url, {"user": str(previously_has_power.pk)})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["object_list"]), 1)
+
+        # Should allow filtering by multiple users
+        response = self.client.get(
+            self.url,
+            {"user": [str(self.user.pk), str(previously_has_power.pk)]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["object_list"]), 3)
+
     def test_filtered_no_results(self):
-        response = self.client.get(self.url, {"timestamp_before": "2020-01-01"})
+        response = self.client.get(self.url, {"timestamp_to": "2020-01-01"})
         soup = self.get_soup(response.content)
         results = soup.select_one("#listing-results")
-        table = soup.select_one("table")
+        table = soup.select_one("#listing-results table")
         p = results.select_one("p")
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(results)
@@ -990,11 +1125,24 @@ class TestHistoryView(WagtailTestUtils, TestCase):
         response = self.client.get(self.url)
         soup = self.get_soup(response.content)
         results = soup.select_one("#listing-results")
-        table = soup.select_one("table")
+        table = soup.select_one("#listing-results table")
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(results)
         self.assertEqual(results.text.strip(), "There are no log entries to display.")
         self.assertIsNone(table)
+
+        # Should hide the action and user filters as there are no choices for
+        # these filters (since the choices are based on the current queryset)
+        action_inputs = soup.select('input[name="action"]')
+        self.assertEqual(len(action_inputs), 0)
+        user_inputs = soup.select('input[name="user"]')
+        self.assertEqual(len(user_inputs), 0)
+
+        # Should still render the timestamp filter as it is always available
+        timestamp_before_input = soup.select_one('input[name="timestamp_to"]')
+        self.assertIsNotNone(timestamp_before_input)
+        timestamp_after_input = soup.select_one('input[name="timestamp_from"]')
+        self.assertIsNotNone(timestamp_after_input)
 
     def test_edit_view_links_to_history_view(self):
         edit_url = reverse("feature_complete_toy:edit", args=(quote(self.object.pk),))
@@ -1003,6 +1151,19 @@ class TestHistoryView(WagtailTestUtils, TestCase):
         header = soup.select_one(".w-slim-header")
         history_link = header.find("a", attrs={"href": self.url})
         self.assertIsNotNone(history_link)
+
+    def test_deleted_user(self):
+        to_be_deleted = self.create_user("to_be_deleted")
+        user_id = to_be_deleted.pk
+        log(
+            instance=self.object,
+            action="wagtail.edit",
+            content_changed=True,
+            user=to_be_deleted,
+        )
+        to_be_deleted.delete()
+        response = self.client.get(self.url)
+        self.assertContains(response, f"user {user_id} (deleted)")
 
 
 class TestUsageView(WagtailTestUtils, TestCase):
@@ -1029,7 +1190,7 @@ class TestUsageView(WagtailTestUtils, TestCase):
         h1 = soup.select_one("h1")
         self.assertEqual(h1.text.strip(), f"Usage: {self.object}")
 
-        tds = soup.select("tbody tr td")
+        tds = soup.select("#listing-results tbody tr td")
         self.assertEqual(len(tds), 3)
         self.assertEqual(tds[0].text.strip(), str(self.tbx))
         self.assertEqual(tds[1].text.strip(), "Various on delete model")
@@ -1077,7 +1238,7 @@ class TestUsageView(WagtailTestUtils, TestCase):
         h1 = soup.select_one("h1")
         self.assertEqual(h1.text.strip(), f"Usage: {self.object}")
 
-        tds = soup.select("tbody tr td")
+        tds = soup.select("#listing-results tbody tr td")
         self.assertEqual(len(tds), 3)
         self.assertEqual(tds[0].text.strip(), "(Private various on delete model)")
         self.assertEqual(tds[1].text.strip(), "Various on delete model")
@@ -1099,7 +1260,7 @@ class TestUsageView(WagtailTestUtils, TestCase):
         h1 = soup.select_one("h1")
         self.assertEqual(h1.text.strip(), f"Usage: {self.object}")
 
-        tds = soup.select("tbody tr td")
+        tds = soup.select("#listing-results tbody tr td")
         self.assertEqual(len(tds), 3)
         self.assertEqual(tds[0].text.strip(), str(self.tbx))
         self.assertEqual(tds[1].text.strip(), "Various on delete model")
@@ -1125,7 +1286,7 @@ class TestUsageView(WagtailTestUtils, TestCase):
         response = self.client.get(self.url)
         soup = self.get_soup(response.content)
         results = soup.select_one("#listing-results")
-        table = soup.select_one("table")
+        table = soup.select_one("#listing-results table")
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(results)
         self.assertEqual(results.text.strip(), "There are no results.")
@@ -1277,6 +1438,11 @@ class TestListingButtons(WagtailTestUtils, TestCase):
                 reverse("feature_complete_toy:edit", args=[quote(self.object.pk)]),
             ),
             (
+                "Copy",
+                f"Copy '{self.object}'",
+                reverse("feature_complete_toy:copy", args=[quote(self.object.pk)]),
+            ),
+            (
                 "Inspect",
                 f"Inspect '{self.object}'",
                 reverse("feature_complete_toy:inspect", args=[quote(self.object.pk)]),
@@ -1298,6 +1464,79 @@ class TestListingButtons(WagtailTestUtils, TestCase):
             self.assertEqual(rendered_button.attrs.get("aria-label"), aria_label)
             self.assertEqual(rendered_button.attrs.get("href"), url)
 
+    def test_copy_disabled(self):
+        response = self.client.get(reverse("fctoy_alt1:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "wagtailadmin/shared/buttons.html")
+
+        soup = self.get_soup(response.content)
+        actions = soup.select_one("tbody tr td ul.actions")
+        more_dropdown = actions.select_one("li [data-controller='w-dropdown']")
+        self.assertIsNotNone(more_dropdown)
+        more_button = more_dropdown.select_one("button")
+        self.assertEqual(
+            more_button.attrs.get("aria-label").strip(),
+            f"More options for '{self.object}'",
+        )
+
+        expected_buttons = [
+            (
+                "Edit",
+                f"Edit '{self.object}'",
+                reverse("fctoy_alt1:edit", args=[quote(self.object.pk)]),
+            ),
+            (
+                "Inspect",
+                f"Inspect '{self.object}'",
+                reverse("fctoy_alt1:inspect", args=[quote(self.object.pk)]),
+            ),
+            (
+                "Delete",
+                f"Delete '{self.object}'",
+                reverse("fctoy_alt1:delete", args=[quote(self.object.pk)]),
+            ),
+        ]
+
+        rendered_buttons = more_dropdown.select("a")
+        self.assertEqual(len(rendered_buttons), len(expected_buttons))
+
+        for rendered_button, (label, aria_label, url) in zip(
+            rendered_buttons, expected_buttons
+        ):
+            self.assertEqual(rendered_button.text.strip(), label)
+            self.assertEqual(rendered_button.attrs.get("aria-label"), aria_label)
+            self.assertEqual(rendered_button.attrs.get("href"), url)
+
+
+class TestCopyView(WagtailTestUtils, TestCase):
+    def setUp(self):
+        self.user = self.login()
+        self.url = reverse("feature_complete_toy:copy", args=[quote(self.object.pk)])
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.object = FeatureCompleteToy.objects.create(name="Test Toy")
+
+    def test_without_permission(self):
+        self.user.is_superuser = False
+        self.user.save()
+        admin_permission = Permission.objects.get(
+            content_type__app_label="wagtailadmin", codename="access_admin"
+        )
+        self.user.user_permissions.add(admin_permission)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse("wagtailadmin_home"))
+
+    def test_form_is_prefilled(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        soup = self.get_soup(response.content)
+        name_input = soup.select_one('input[name="name"]')
+        self.assertEqual(name_input.attrs.get("value"), "Test Toy")
+
 
 class TestEditHandler(WagtailTestUtils, TestCase):
     def setUp(self):
@@ -1312,6 +1551,10 @@ class TestEditHandler(WagtailTestUtils, TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "wagtailadmin/shared/panel.html")
+        # Many features from the Panels API are powered by client-side JS in
+        # _editor_js.html. We need to make sure that this template is included
+        # in the response for now.
+        self.assertTemplateUsed(response, "wagtailadmin/pages/_editor_js.html", count=1)
 
         soup = self.get_soup(response.content)
 

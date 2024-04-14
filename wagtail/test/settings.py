@@ -1,10 +1,9 @@
 import os
 
-from django import VERSION as DJANGO_VERSION
 from django.contrib.messages import constants as message_constants
 from django.utils.translation import gettext_lazy as _
 
-DEBUG = False
+DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 WAGTAIL_ROOT = os.path.dirname(os.path.dirname(__file__))
 WAGTAILADMIN_BASE_URL = "http://testserver"
 STATIC_ROOT = os.path.join(WAGTAIL_ROOT, "tests", "test-static")
@@ -70,11 +69,6 @@ if os.environ.get("STATICFILES_STORAGE", "") == "manifest":
     STORAGES["staticfiles"][
         "BACKEND"
     ] = "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
-
-    if DJANGO_VERSION < (4, 2):
-        STATICFILES_STORAGE = (
-            "django.contrib.staticfiles.storage.ManifestStaticFilesStorage"
-        )
 
 
 USE_TZ = not os.environ.get("DISABLE_TIMEZONE")
@@ -188,7 +182,13 @@ PASSWORD_HASHERS = (
     "django.contrib.auth.hashers.MD5PasswordHasher",  # don't use the intentionally slow default password hasher
 )
 
-ALLOWED_HOSTS = ["localhost", "testserver", "other.example.com"]
+ALLOWED_HOSTS = [
+    "localhost",
+    "testserver",
+    "other.example.com",
+    "127.0.0.1",
+    "0.0.0.0",
+]
 
 WAGTAILSEARCH_BACKENDS = {
     "default": {

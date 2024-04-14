@@ -16,6 +16,7 @@ from django_filters.filters import (
     DateFromToRangeFilter,
     ModelChoiceFilter,
     ModelMultipleChoiceFilter,
+    MultipleChoiceFilter,
 )
 
 from wagtail.admin import messages
@@ -93,7 +94,6 @@ class WagtailAdminTemplateMixin(TemplateResponseMixin, ContextMixin):
         if self._show_breadcrumbs:
             context["breadcrumbs_items"] = self.get_breadcrumbs_items()
             context["header_buttons"] = self.get_header_buttons()
-            context["header_more_buttons"] = self.get_header_more_buttons()
         return context
 
     def get_template_names(self):
@@ -120,13 +120,16 @@ class BaseObjectMixin:
     def get_pk(self):
         return unquote(str(self.kwargs[self.pk_url_kwarg]))
 
+    def get_base_object_queryset(self):
+        return self.model._default_manager.all()
+
     def get_object(self):
         if not self.model:
             raise ImproperlyConfigured(
                 "Subclasses of wagtail.admin.views.generic.base.BaseObjectMixin must provide a "
                 "model attribute or a get_object method"
             )
-        return get_object_or_404(self.model, pk=self.pk)
+        return get_object_or_404(self.get_base_object_queryset(), pk=self.pk)
 
 
 class BaseOperationView(BaseObjectMixin, View):
@@ -173,7 +176,7 @@ class BaseOperationView(BaseObjectMixin, View):
 
 # Represents a django-filters filter that is currently in force on a listing queryset
 ActiveFilter = namedtuple(
-    "ActiveFilter", ["field_label", "value", "removed_filter_url"]
+    "ActiveFilter", ["auto_id", "field_label", "value", "removed_filter_url"]
 )
 
 
@@ -201,7 +204,10 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
     @cached_property
     def filters(self):
         if self.filterset_class:
-            return self.filterset_class(self.request.GET, request=self.request)
+            filterset = self.filterset_class(**self.get_filterset_kwargs())
+            # Don't use the filterset if it has no fields
+            if filterset.form.fields:
+                return filterset
 
     @cached_property
     def is_filtering(self):
@@ -209,6 +215,12 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
         return (
             self.filters and self.filters.is_valid() and self.filters.form.has_changed()
         )
+
+    def get_filterset_kwargs(self):
+        return {
+            "data": self.request.GET,
+            "request": self.request,
+        }
 
     def filter_queryset(self, queryset):
         if self.filters and self.filters.is_valid():
@@ -227,6 +239,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
                 query_dict.pop(p, None)
         else:
             query_dict.pop(param, None)
+        query_dict["_w_filter_fragment"] = 1
         return base_url + "?" + query_dict.urlencode()
 
     def get_url_without_filter_param_value(self, param, value):
@@ -240,6 +253,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
         query_dict.setlist(
             param, [v for v in query_dict.getlist(param) if v != str(value)]
         )
+        query_dict["_w_filter_fragment"] = 1
         return base_url + "?" + query_dict.urlencode()
 
     @cached_property
@@ -251,6 +265,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
 
         for field_name in self.filters.form.changed_data:
             filter_def = self.filters.filters[field_name]
+            bound_field = self.filters.form[field_name]
             try:
                 value = self.filters.form.cleaned_data[field_name]
             except KeyError:
@@ -261,6 +276,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
                 for item in value:
                     filters.append(
                         ActiveFilter(
+                            bound_field.auto_id,
                             filter_def.label,
                             field.label_from_instance(item),
                             self.get_url_without_filter_param_value(
@@ -268,10 +284,22 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
                             ),
                         )
                     )
+            elif isinstance(filter_def, MultipleChoiceFilter):
+                choices = {str(id): label for id, label in filter_def.field.choices}
+                for item in value:
+                    filters.append(
+                        ActiveFilter(
+                            bound_field.auto_id,
+                            filter_def.label,
+                            choices.get(str(item), str(item)),
+                            self.get_url_without_filter_param_value(field_name, item),
+                        )
+                    )
             elif isinstance(filter_def, ModelChoiceFilter):
                 field = filter_def.field
                 filters.append(
                     ActiveFilter(
+                        bound_field.auto_id,
                         filter_def.label,
                         field.label_from_instance(value),
                         self.get_url_without_filter_param(field_name),
@@ -280,12 +308,17 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
             elif isinstance(filter_def, DateFromToRangeFilter):
                 start_date_display = date_format(value.start) if value.start else ""
                 end_date_display = date_format(value.stop) if value.stop else ""
+                widget = filter_def.field.widget
                 filters.append(
                     ActiveFilter(
+                        bound_field.auto_id,
                         filter_def.label,
                         "%s - %s" % (start_date_display, end_date_display),
                         self.get_url_without_filter_param(
-                            [f"{field_name}_before", f"{field_name}_after"]
+                            [
+                                widget.suffixed(field_name, suffix)
+                                for suffix in widget.suffixes
+                            ]
                         ),
                     )
                 )
@@ -293,6 +326,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
                 choices = {str(id): label for id, label in filter_def.field.choices}
                 filters.append(
                     ActiveFilter(
+                        bound_field.auto_id,
                         filter_def.label,
                         choices.get(str(value), str(value)),
                         self.get_url_without_filter_param(field_name),
@@ -301,6 +335,7 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
             else:
                 filters.append(
                     ActiveFilter(
+                        bound_field.auto_id,
                         filter_def.label,
                         str(value),
                         self.get_url_without_filter_param(field_name),
@@ -422,5 +457,17 @@ class BaseListingView(WagtailAdminTemplateMixin, BaseListView):
             context["filters"] = self.filters
             context["is_filtering"] = self.is_filtering
             context["media"] += self.filters.form.media
+
+        # If we're rendering the results as an HTML fragment, the caller can pass a _w_filter_fragment=1
+        # URL parameter to indicate that the filters should be rendered as a <template> block so that
+        # we can replace the existing filters.
+        context["render_filters_fragment"] = (
+            self.request.GET.get("_w_filter_fragment")
+            and self.filters
+            and self.results_only
+        )
+        context["render_buttons_fragment"] = (
+            context.get("header_buttons") and self.results_only
+        )
 
         return context

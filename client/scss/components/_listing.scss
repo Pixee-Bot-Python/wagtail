@@ -27,7 +27,11 @@ ul.listing {
 
   td,
   th {
-    padding: 1.2em 1em;
+    padding: 1.2em 0.3em;
+
+    @include media-breakpoint-up(sm) {
+      padding: 1.2em 1em;
+    }
 
     &.no-padding {
       padding: 0;
@@ -36,7 +40,11 @@ ul.listing {
 
   &.small td,
   th {
-    padding: 0.6em 1em;
+    padding: 0.6em 0.3em;
+
+    @include media-breakpoint-up(sm) {
+      padding: 0.6em 1em;
+    }
   }
 
   td {
@@ -44,8 +52,12 @@ ul.listing {
   }
 
   td.title {
-    padding: 1em;
     line-height: 2em;
+    padding: 1em 0.3em;
+
+    @include media-breakpoint-up(sm) {
+      padding: 1em;
+    }
   }
 
   thead {
@@ -58,6 +70,10 @@ ul.listing {
       text-align: start;
       font-weight: normal;
       white-space: nowrap;
+    }
+
+    th.title {
+      white-space: normal;
     }
 
     th.children {
@@ -75,7 +91,10 @@ ul.listing {
     }
   }
 
-  &:has(.bulk-action-checkbox) {
+  &:has(
+      td:first-child input[type='checkbox'],
+      th:first-child input[type='checkbox']
+    ) {
     td:first-child,
     th:first-child {
       // Bulk actions, use smaller width (48px) for smaller screens
@@ -213,7 +232,8 @@ ul.listing {
     .title-wrapper,
     h2 {
       @apply w-label-1;
-      display: inline;
+      display: inline-flex;
+      gap: theme('spacing.2');
       margin: 0;
       vertical-align: middle;
 
@@ -320,7 +340,7 @@ ul.listing {
 
     &:hover,
     &:focus {
-      color: theme('colors.text-button-outline-default');
+      color: theme('colors.text-button-outline-hover');
     }
 
     &:focus {
@@ -345,7 +365,7 @@ ul.listing {
 
     &--active a,
     a:hover {
-      color: theme('colors.text-button-outline-default');
+      color: theme('colors.text-button-outline-hover');
     }
   }
 
@@ -593,7 +613,10 @@ table.listing {
       padding-inline-start: 50px;
     }
 
-    &:has(.bulk-action-checkbox) {
+    &:has(
+        td:first-child input[type='checkbox'],
+        th:first-child input[type='checkbox']
+      ) {
       // Bulk actions, match the width of the header spacing up until
       // the page title (final breadcrumb item):
       // Breadcrumbs left padding: 20px
@@ -607,16 +630,37 @@ table.listing {
         // so the checkbox align with the breadcrumbs toggle.
         padding-inline-start: theme('spacing.5');
       }
+    }
 
+    // Remove left padding from the second column if either bulk action or
+    // custom ordering is active, as the padding to match the breadcrumbs is
+    // already handled by the first column.
+    &:has(
+        td:first-child input[type='checkbox'],
+        th:first-child input[type='checkbox'],
+        .ord
+      ) {
       th:nth-child(2),
       td:nth-child(2) {
         padding-inline-start: 0;
       }
     }
 
-    // If no bulk actions are present, and nice padding is not applied,
-    // apply the same 80px padding via the first column's left padding.
-    &:not(.nice-padding &, .report &):not(:has(.bulk-action-checkbox)) {
+    // If either:
+    // - no nice padding is applied,
+    // - we're not in a report listing,
+    // - we're not in the editor view,
+    // and:
+    // - no bulk actions are present,
+    // - we're not in the "custom ordering" mode,
+    // then apply the same 80px padding via the first column's left padding.
+    &:not(.nice-padding &, .report &, .editor-view &):not(
+        :has(
+            td:first-child input[type='checkbox'],
+            th:first-child input[type='checkbox'],
+            .ord
+          )
+      ) {
       th:first-child,
       td:first-child {
         padding-inline-start: theme('spacing.20');
@@ -660,5 +704,22 @@ td.ord {
 table.listing {
   th.ordered {
     color: theme('colors.text-link-default');
+  }
+}
+
+.w-title-ellipsis {
+  display: inline-block;
+  vertical-align: bottom;
+  max-width: 20ch;
+  overflow-x: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @include media-breakpoint-up(sm) {
+    max-width: 30ch;
+  }
+
+  @include media-breakpoint-up(md) {
+    max-width: none;
   }
 }

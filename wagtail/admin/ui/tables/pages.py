@@ -11,13 +11,33 @@ class PageTitleColumn(BaseColumn):
 
     def get_header_context_data(self, parent_context):
         context = super().get_header_context_data(parent_context)
+        parent_page = parent_context.get("parent_page")
+
+        context["items_count"] = parent_context.get("items_count")
         context["page_obj"] = parent_context.get("page_obj")
-        context["parent_page"] = parent_context.get("parent_page")
-        context["is_searching"] = parent_context.get("is_searching")
-        context["is_filtering"] = parent_context.get("is_filtering")
-        context["is_searching_whole_tree"] = parent_context.get(
-            "is_searching_whole_tree"
-        )
+        context["parent_page"] = parent_page
+
+        if parent_page and (
+            parent_context.get("is_searching") or parent_context.get("is_filtering")
+        ):
+            # Results are switchable between searching the whole tree and searching just this parent.
+            # Add extra signposting to show which scope we're in, and provide a link to switch scope.
+            if parent_context.get("is_searching_whole_tree"):
+                context["result_scope"] = "whole_tree"
+            else:
+                context["result_scope"] = "parent"
+        else:
+            # No signposting needed
+            context["result_scope"] = None
+
+        # If results are not paginated e.g. when using the OrderingColumn,
+        # all items are displayed on the page
+        context["start_index"] = 1
+        context["end_index"] = context["items_count"]
+        if context["page_obj"]:
+            context["start_index"] = context["page_obj"].start_index()
+            context["end_index"] = context["page_obj"].end_index()
+
         return context
 
     def get_cell_context_data(self, instance, parent_context):
@@ -140,6 +160,7 @@ class PageTable(Table):
         context = super().get_context_data(parent_context)
         context["show_locale_labels"] = self.show_locale_labels
         context["perms"] = parent_context.get("perms")
+        context["items_count"] = parent_context.get("items_count")
         context["page_obj"] = parent_context.get("page_obj")
         context["parent_page"] = parent_context.get("parent_page")
         context["is_searching"] = parent_context.get("is_searching")

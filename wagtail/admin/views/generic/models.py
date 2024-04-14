@@ -1,6 +1,5 @@
 import warnings
 
-from django import VERSION as DJANGO_VERSION
 from django.contrib.admin.utils import label_for_field, quote, unquote
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import (
@@ -10,8 +9,8 @@ from django.core.exceptions import (
 )
 from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.constants import LOOKUP_SEP
 from django.db.models.functions import Cast
-from django.forms import Form
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
@@ -20,14 +19,11 @@ from django.utils.text import capfirst
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 from django.views.generic import TemplateView
-from django.views.generic.detail import BaseDetailView
 from django.views.generic.edit import (
     BaseCreateView,
+    BaseDeleteView,
     BaseUpdateView,
-    DeletionMixin,
-    FormMixin,
 )
-from django.views.generic.edit import BaseDeleteView as DjangoBaseDeleteView
 
 from wagtail.actions.unpublish import UnpublishAction
 from wagtail.admin import messages
@@ -46,7 +42,6 @@ from wagtail.admin.ui.tables import (
 from wagtail.admin.utils import get_latest_str, get_valid_next_url_from_request
 from wagtail.admin.views.mixins import SpreadsheetExportMixin
 from wagtail.admin.widgets.button import (
-    Button,
     ButtonWithDropdown,
     HeaderButton,
     ListingButton,
@@ -62,39 +57,6 @@ from .base import BaseListingView, WagtailAdminTemplateMixin
 from .mixins import BeforeAfterHookMixin, HookResponseMixin, LocaleMixin, PanelMixin
 from .permissions import PermissionCheckedMixin
 
-if DJANGO_VERSION >= (4, 0):
-    BaseDeleteView = DjangoBaseDeleteView
-else:
-    # As of Django 4.0 BaseDeleteView has switched to a new implementation based on FormMixin
-    # where custom deletion logic now lives in form_valid:
-    # https://docs.djangoproject.com/en/4.0/releases/4.0/#deleteview-changes
-    # Here we define BaseDeleteView to match the Django 4.0 implementation to keep it consistent
-    # across all versions.
-    class BaseDeleteView(DeletionMixin, FormMixin, BaseDetailView):
-        """
-        Base view for deleting an object.
-        Using this base class requires subclassing to provide a response mixin.
-        """
-
-        form_class = Form
-
-        def post(self, request, *args, **kwargs):
-            # Set self.object before the usual form processing flow.
-            # Inlined because having DeletionMixin as the first base, for
-            # get_success_url(), makes leveraging super() with ProcessFormView
-            # overly complex.
-            self.object = self.get_object()
-            form = self.get_form()
-            if form.is_valid():
-                return self.form_valid(form)
-            else:
-                return self.form_invalid(form)
-
-        def form_valid(self, form):
-            success_url = self.get_success_url()
-            self.object.delete()
-            return HttpResponseRedirect(success_url)
-
 
 class IndexView(
     SpreadsheetExportMixin,
@@ -107,6 +69,7 @@ class IndexView(
     results_template_name = "wagtailadmin/generic/index_results.html"
     add_url_name = None
     edit_url_name = None
+    copy_url_name = None
     inspect_url_name = None
     delete_url_name = None
     any_permission_required = ["add", "change", "delete"]
@@ -270,7 +233,7 @@ class IndexView(
             query |= Q(**{field + "__icontains": self.search_query})
         return queryset.filter(query)
 
-    def _get_title_column(self, field_name, column_class=TitleColumn, **kwargs):
+    def _get_title_column_class(self, column_class):
         if not issubclass(column_class, ButtonsColumnMixin):
 
             def get_buttons(column, instance, *args, **kwargs):
@@ -281,6 +244,10 @@ class IndexView(
                 (ButtonsColumnMixin, column_class),
                 {"get_buttons": get_buttons},
             )
+        return column_class
+
+    def _get_title_column(self, field_name, column_class=TitleColumn, **kwargs):
+        column_class = self._get_title_column_class(column_class)
         if not self.model:
             return column_class(
                 "name",
@@ -293,7 +260,32 @@ class IndexView(
         )
 
     def _get_custom_column(self, field_name, column_class=Column, **kwargs):
-        label, attr = label_for_field(field_name, self.model, return_attr=True)
+        lookups = (
+            [field_name]
+            if hasattr(self.model, field_name)
+            else field_name.split(LOOKUP_SEP)
+        )
+        *relations, field = lookups
+        model_class = self.model
+
+        # Iterate over the relation list to try to get the last model
+        # where the field exists
+        foreign_field_name = ""
+        for model in relations:
+            foreign_field = model_class._meta.get_field(model)
+            foreign_field_name = foreign_field.verbose_name
+            model_class = foreign_field.related_model
+
+        label, attr = label_for_field(field, model_class, return_attr=True)
+
+        # For some languages, it may be more appropriate to put the field label
+        # before the related model name
+        if foreign_field_name:
+            label = _("%(related_model_name)s %(field_label)s") % {
+                "related_model_name": foreign_field_name,
+                "field_label": label,
+            }
+
         sort_key = getattr(attr, "admin_order_field", None)
 
         # attr is None if the field is an actual database field,
@@ -301,8 +293,12 @@ class IndexView(
         if attr is None:
             sort_key = field_name
 
+        accessor = field_name
+        # Build the dotted relation if needed, for use in multigetattr
+        if relations:
+            accessor = ".".join(lookups)
         return column_class(
-            field_name,
+            accessor,
             label=capfirst(label),
             sort_key=sort_key,
             **kwargs,
@@ -325,6 +321,10 @@ class IndexView(
     def get_edit_url(self, instance):
         if self.edit_url_name:
             return reverse(self.edit_url_name, args=(quote(instance.pk),))
+
+    def get_copy_url(self, instance):
+        if self.copy_url_name:
+            return reverse(self.copy_url_name, args=(quote(instance.pk),))
 
     def get_inspect_url(self, instance):
         if self.inspect_url_name:
@@ -371,29 +371,6 @@ class IndexView(
             )
         return buttons
 
-    @cached_property
-    def header_more_buttons(self):
-        buttons = []
-        if self.list_export:
-            buttons.append(
-                Button(
-                    _("Download XLSX"),
-                    url=self.xlsx_export_url,
-                    icon_name="download",
-                    priority=90,
-                )
-            )
-            buttons.append(
-                Button(
-                    _("Download CSV"),
-                    url=self.csv_export_url,
-                    icon_name="download",
-                    priority=100,
-                )
-            )
-
-        return buttons
-
     def get_list_more_buttons(self, instance):
         buttons = []
         edit_url = self.get_edit_url(instance)
@@ -411,6 +388,20 @@ class IndexView(
                         "aria-label": _("Edit '%(title)s'") % {"title": str(instance)}
                     },
                     priority=10,
+                )
+            )
+        copy_url = self.get_copy_url(instance)
+        can_copy = self.permission_policy.user_has_permission(self.request.user, "add")
+        if copy_url and can_copy:
+            buttons.append(
+                ListingButton(
+                    _("Copy"),
+                    url=copy_url,
+                    icon_name="copy",
+                    attrs={
+                        "aria-label": _("Copy '%(title)s'") % {"title": str(instance)}
+                    },
+                    priority=20,
                 )
             )
         inspect_url = self.get_inspect_url(instance)
@@ -616,14 +607,16 @@ class CreateView(
         return context
 
     def get_side_panels(self):
-        side_panels = [
-            StatusSidePanel(
-                self.form.instance,
-                self.request,
-                locale=self.locale,
-                translations=self.translations,
+        side_panels = []
+        if self.locale:
+            side_panels.append(
+                StatusSidePanel(
+                    self.form.instance,
+                    self.request,
+                    locale=self.locale,
+                    translations=self.translations,
+                )
             )
-        ]
         return MediaContainer(side_panels)
 
     def get_translations(self):
@@ -676,6 +669,14 @@ class CreateView(
         return super().form_invalid(form)
 
 
+class CopyView(CreateView):
+    def get_object(self, queryset=None):
+        return get_object_or_404(self.model, pk=unquote(str(self.kwargs["pk"])))
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), "instance": self.get_object()}
+
+
 class EditView(
     LocaleMixin,
     PanelMixin,
@@ -721,7 +722,7 @@ class EditView(
         return super().get_object(queryset)
 
     def get_page_subtitle(self):
-        return str(self.object)
+        return get_latest_str(self.object)
 
     def get_breadcrumbs_items(self):
         if not self.model:
@@ -734,7 +735,7 @@ class EditView(
                     "label": capfirst(self.model._meta.verbose_name_plural),
                 }
             )
-        items.append({"url": "", "label": get_latest_str(self.object)})
+        items.append({"url": "", "label": self.get_page_subtitle()})
         return self.breadcrumbs_items + items
 
     def get_side_panels(self):
@@ -756,7 +757,11 @@ class EditView(
         return MediaContainer(side_panels)
 
     def get_last_updated_info(self):
-        return log_registry.get_logs_for_instance(self.object).first()
+        return (
+            log_registry.get_logs_for_instance(self.object)
+            .select_related("user")
+            .first()
+        )
 
     def get_edit_url(self):
         if not self.edit_url_name:

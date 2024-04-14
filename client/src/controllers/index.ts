@@ -3,14 +3,18 @@ import type { Definition } from '@hotwired/stimulus';
 // Order controller imports alphabetically.
 import { ActionController } from './ActionController';
 import { AutosizeController } from './AutosizeController';
+import { BlockController } from './BlockController';
 import { BulkController } from './BulkController';
 import { ClipboardController } from './ClipboardController';
 import { CloneController } from './CloneController';
 import { CountController } from './CountController';
 import { DialogController } from './DialogController';
 import { DismissibleController } from './DismissibleController';
+import { DrilldownController } from './DrilldownController';
 import { DropdownController } from './DropdownController';
 import { InitController } from './InitController';
+import { KeyboardController } from './KeyboardController';
+import { LinkController } from './LinkController';
 import { OrderableController } from './OrderableController';
 import { ProgressController } from './ProgressController';
 import { RevealController } from './RevealController';
@@ -32,6 +36,7 @@ export const coreControllerDefinitions: Definition[] = [
   // Keep this list in alphabetical order
   { controllerConstructor: ActionController, identifier: 'w-action' },
   { controllerConstructor: AutosizeController, identifier: 'w-autosize' },
+  { controllerConstructor: BlockController, identifier: 'w-block' },
   { controllerConstructor: BulkController, identifier: 'w-bulk' },
   { controllerConstructor: ClipboardController, identifier: 'w-clipboard' },
   { controllerConstructor: CloneController, identifier: 'w-clone' },
@@ -39,8 +44,11 @@ export const coreControllerDefinitions: Definition[] = [
   { controllerConstructor: CountController, identifier: 'w-count' },
   { controllerConstructor: DialogController, identifier: 'w-dialog' },
   { controllerConstructor: DismissibleController, identifier: 'w-dismissible' },
+  { controllerConstructor: DrilldownController, identifier: 'w-drilldown' },
   { controllerConstructor: DropdownController, identifier: 'w-dropdown' },
   { controllerConstructor: InitController, identifier: 'w-init' },
+  { controllerConstructor: KeyboardController, identifier: 'w-kbd' },
+  { controllerConstructor: LinkController, identifier: 'w-link' },
   { controllerConstructor: OrderableController, identifier: 'w-orderable' },
   { controllerConstructor: ProgressController, identifier: 'w-progress' },
   { controllerConstructor: RevealController, identifier: 'w-breadcrumbs' },

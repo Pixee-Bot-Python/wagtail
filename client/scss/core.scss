@@ -110,10 +110,12 @@ These are classes for components.
 @import 'components/panel';
 @import 'components/dialog';
 @import 'components/dismissible';
+@import 'components/drilldown';
 @import 'components/dropdown';
 @import 'components/dropdown-button';
 @import 'components/help-block';
 @import 'components/button';
+@import 'components/keyboard-shortcuts';
 @import 'components/modals';
 @import 'components/chooser';
 @import 'components/tag';
@@ -140,6 +142,7 @@ These are classes for components.
 @import 'components/preview-panel';
 @import 'components/preview-error';
 @import 'components/form-side';
+@import 'components/a11y-result';
 @import 'components/userbar';
 @import 'components/breadcrumbs';
 @import 'components/pill';

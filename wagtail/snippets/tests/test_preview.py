@@ -297,14 +297,20 @@ class TestEnablePreview(WagtailTestUtils, TestCase):
         self.assertEqual(response.status_code, 200)
 
         # Should show the preview panel
-        self.assertContains(response, 'data-side-panel-toggle="preview"')
         self.assertContains(response, 'data-side-panel="preview"')
         self.assertContains(response, 'data-action="%s"' % preview_url)
+
+        # Should have the preview side panel toggle button
+        soup = self.get_soup(response.content)
+        toggle_button = soup.find("button", {"data-side-panel-toggle": "preview"})
+        self.assertIsNotNone(toggle_button)
+        self.assertEqual("w-tooltip w-kbd", toggle_button["data-controller"])
+        self.assertEqual("mod+p", toggle_button["data-w-kbd-key-value"])
 
         # Should show the iframe
         self.assertContains(
             response,
-            '<iframe loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
+            '<iframe id="preview-iframe" loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
         )
 
         # Should show the new tab button with the default mode set
@@ -332,7 +338,7 @@ class TestEnablePreview(WagtailTestUtils, TestCase):
         # Should show the iframe
         self.assertContains(
             response,
-            '<iframe loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
+            '<iframe id="preview-iframe" loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
         )
 
         # Should show the new tab button with the default mode set and correctly quoted
@@ -368,7 +374,7 @@ class TestEnablePreview(WagtailTestUtils, TestCase):
         # Should show the iframe
         self.assertContains(
             response,
-            '<iframe loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
+            '<iframe id="preview-iframe" loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
         )
 
         # Should show the new tab button with the default mode set
@@ -398,7 +404,7 @@ class TestEnablePreview(WagtailTestUtils, TestCase):
         # Should show the iframe
         self.assertContains(
             response,
-            '<iframe loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
+            '<iframe id="preview-iframe" loading="lazy" title="Preview" class="preview-panel__iframe" data-preview-iframe aria-describedby="preview-panel-error-banner">',
         )
 
         # Should show the new tab button with the default mode set and correctly quoted
@@ -471,8 +477,13 @@ class TestDisablePreviewWithEmptyModes(WagtailTestUtils, TestCase):
         preview_url = self.get_url(
             "revisions_view", args=(self.snippet.pk, latest_revision.id)
         )
-        self.assertNotContains(response, "Preview")
+
         self.assertNotContains(response, preview_url)
+
+        soup = self.get_soup(response.content)
+
+        preview_link = soup.find("a", {"href": preview_url})
+        self.assertIsNone(preview_link)
 
 
 class TestDisablePreviewWithoutMixin(TestDisablePreviewWithEmptyModes):

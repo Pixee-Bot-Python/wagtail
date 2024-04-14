@@ -1,9 +1,5 @@
 # Create a footer for all pages
 
-```{warning}
-We’ve just released this new tutorial. Do you want to provide feedback? Please complete our [2023 tutorial feedback form](https://wagtail.org/gsod-2023-feedback/).
-```
-
 The next step is to create a footer for all pages of your portfolio site. You can display social media links and other information in your footer.
 
 ## Add a base app
@@ -142,7 +138,7 @@ Now, reload your [homepage](http://127.0.0.1:8000). You'll see your social media
 
 Having only your social media links in your portfolio footer isn't ideal. You can add other items, like site credits and copyright notices, to your footer. One way to do this is to use the Wagtail [snippet](../topics/snippets/index.md) feature to create an editable footer text in your admin interface and display it in your site's footer.
 
-To add a footer text snippet to your admin interface, modify your `base/model.py` file as follows:
+To add a footer text snippet to your admin interface, modify your `base/models.py` file as follows:
 
 ```python
 from django.db import models
@@ -238,8 +234,9 @@ To add your footer text, go to your [admin interface](https://guide.wagtail.org/
 In this tutorial, you'll use a custom template tag to display your footer text.
 
 In your `base` folder, create a `templatetags` folder. Within your new `templatetags` folder, create the following files:
-- `__init__.py`
-- `navigation_tags.py`
+
+-   `__init__.py`
+-   `navigation_tags.py`
 
 Leave your `base/templatetags/__init__.py` file blank and add the following to your `base/templatetags/navigation_tags.py` file:
 
